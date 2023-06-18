@@ -215,6 +215,7 @@ def evaluate(
   errors_occ = []
   inference_times = []
   all_occlusion_results = defaultdict(lambda: defaultdict(int))
+  epe_s40plus_occ = []  # EPE for pixels with displacements larger than 40 pixels.
 
   plot_count = 0
   eval_count = -1
@@ -277,6 +278,14 @@ def evaluate(
     epe_occ.append(tf.reduce_mean(input_tensor=endpoint_error_occ))
     errors_occ.append(tf.reduce_mean(input_tensor=outliers_occ))
 
+    # EPE s40+: discard all displacements <= 40 pixels
+    endpoint_error_s40plus_occ_mask = tf.math.greater(gt_flow_abs, 40)
+    endpoint_error_s40plus_occ_zero = tf.constant(0,
+        shape=endpoint_error_s40plus_occ_mask.shape, dtype=tf.float32)
+    endpoint_error_s40plus_occ = tf.where(endpoint_error_s40plus_occ_mask,
+        endpoint_error_occ, endpoint_error_s40plus_occ_zero)
+    epe_s40plus_occ.append(tf.reduce_mean(input_tensor=endpoint_error_s40plus_occ))
+
     if plot_dir and plot_count < num_plots:
       plot_count += 1
       mask_thresh = tf.cast(
@@ -303,6 +312,7 @@ def evaluate(
       'occl-f-max': fmax,
       'best-occl-thresh': best_thresh,
       'EPE': np.mean(np.array(epe_occ)),
+      'EPE_s40plus': np.mean(np.array(epe_s40plus_occ)),
       'ER': np.mean(np.array(errors_occ)),
       'inf-time(ms)': np.mean(inference_times),
       'eval-time(s)': eval_stop_in_s - eval_start_in_s
@@ -316,7 +326,7 @@ def list_eval_keys(prefix=''):
   """List the keys of the dictionary returned by the evaluate function."""
   keys = [
       'EPE', 'ER', 'inf-time(ms)', 'eval-time(s)', 'occl-f-max',
-      'best-occl-thresh'
+      'best-occl-thresh', 'EPE_s40plus'
   ]
   if prefix:
     return [prefix + '-' + k for k in keys]
