@@ -170,6 +170,52 @@ def get_fmax_and_best_thresh(results):
       best_thresh = thresh
   return fmax, best_thresh
 
+def threshold_epe(min_velocity, max_velocity, gt_flow_abs, endpoint_error_occ):
+  """Compute EPE for pixels with velocities in the interval [min, max].
+  If max is set to None, consider all pixels with velocity greater than min.
+  If min is set to None, consider all pixels with velocity less than max.
+
+  Args:
+    min_velocity: the min velocity value for the interval.
+    max_velocity: the max velocity value for the interval.
+    gt_flow_abs: the tensor with the ground truth velocity magnitudes.
+    endopint_err_occ: the tensor with the computed EPE for the full frame.
+
+  Returns:
+    The EPE over all the frame pixels with ground truth velocities in the interval
+  """
+  endpoint_error_thres_occ_count = 0
+  endpoint_error_thres_occ_mean = 0
+
+  if min_velocity is None:
+    if max_velocity is None:
+      raise ValueError("Illegal interval: both interval limits are None")
+    else:
+      # All pixels with velocities less than max
+      mask = tf.math.less(gt_flow_abs, max_velocity)
+  else:
+    if max_velocity is None:
+      # All pixels with velocities greater than min
+      mask = tf.math.greater(gt_flow_abs, min_velocity)
+    else:
+      # All the pixels with velocities between min and max
+      mask = tf.math.logical_or(tf.less_equal(gt_flow_abs, max_velocity),
+              tf.greater_equal(gt_flow_abs, min_velocity))
+
+  endpoint_error_occ_zero_mask = tf.constant(0,
+              shape=endpoint_error_occ.shape, dtype=tf.float32)
+  endpoint_error_thres_occ = tf.where(mask,
+              endpoint_error_occ, endpoint_error_occ_zero_mask)
+  endpoint_error_thres_occ_count = tf.math.count_nonzero(
+              endpoint_error_thres_occ, dtype=tf.float32)
+
+    # Discard frames where there are no velocities matching
+  if endpoint_error_thres_occ_count > 0:
+    endpoint_error_thres_occ_sum = tf.reduce_sum(input_tensor=endpoint_error_thres_occ)
+    endpoint_error_thres_occ_mean = tf.math.divide(tf.cast(endpoint_error_thres_occ_sum,
+              'float32'), endpoint_error_thres_occ_count)
+  return endpoint_error_thres_occ_mean, endpoint_error_thres_occ_count
+
 
 def evaluate(
     inference_fn,
@@ -216,6 +262,7 @@ def evaluate(
   inference_times = []
   all_occlusion_results = defaultdict(lambda: defaultdict(int))
   epe_s40plus_occ = []  # EPE for pixels with displacements larger than 40 pixels.
+  epe_s40plus_occ_total_count = 0
 
   plot_count = 0
   eval_count = -1
@@ -278,21 +325,11 @@ def evaluate(
     epe_occ.append(tf.reduce_mean(input_tensor=endpoint_error_occ))
     errors_occ.append(tf.reduce_mean(input_tensor=outliers_occ))
 
-    endpoint_error_occ_zero_mask = tf.constant(0,
-        shape=endpoint_error_occ.shape, dtype=tf.float32)
+    endpoint_error_s40plus_occ_mean, epe_s40plus_occ_count = threshold_epe(40, None, gt_flow_abs, endpoint_error_occ)
 
-    # EPE s40+: discard all displacements <= 40 pixels
-    endpoint_error_s40plus_occ_mask = tf.math.greater(gt_flow_abs, 40.0)
-    endpoint_error_s40plus_occ = tf.where(endpoint_error_s40plus_occ_mask,
-        endpoint_error_occ, endpoint_error_occ_zero_mask)
-    endpoint_error_s40plus_occ_count = tf.math.count_nonzero(endpoint_error_s40plus_occ, dtype=tf.float32)
-
-    # Discard frames where there are no velocities > 40
-    if endpoint_error_s40plus_occ_count > 0:
-      endpoint_error_s40plus_occ_sum = tf.reduce_sum(input_tensor=endpoint_error_s40plus_occ)
-      endpoint_error_s40plus_occ_mean = tf.math.divide(tf.cast(endpoint_error_s40plus_occ_sum,
-              'float32'), endpoint_error_s40plus_occ_count)
+    if epe_s40plus_occ_count > 0:
       epe_s40plus_occ.append(endpoint_error_s40plus_occ_mean)
+      epe_s40plus_occ_total_count += epe_s40plus_occ_count
 
     if plot_dir and plot_count < num_plots:
       plot_count += 1
@@ -321,6 +358,7 @@ def evaluate(
       'best-occl-thresh': best_thresh,
       'EPE': np.mean(np.array(epe_occ)),
       'EPE_s40plus': np.mean(np.array(epe_s40plus_occ)),
+      'EPE_s40plus_count': epe_s40plus_occ_total_count,
       'ER': np.mean(np.array(errors_occ)),
       'inf-time(ms)': np.mean(inference_times),
       'eval-time(s)': eval_stop_in_s - eval_start_in_s
@@ -334,7 +372,7 @@ def list_eval_keys(prefix=''):
   """List the keys of the dictionary returned by the evaluate function."""
   keys = [
       'EPE', 'ER', 'inf-time(ms)', 'eval-time(s)', 'occl-f-max',
-      'best-occl-thresh', 'EPE_s40plus'
+      'best-occl-thresh', 'EPE_s40plus', 'EPE_s40plus_count'
   ]
   if prefix:
     return [prefix + '-' + k for k in keys]
