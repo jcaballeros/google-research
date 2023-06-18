@@ -67,6 +67,7 @@ class UFlow(object):
       occ_clip_max=None,
       smoothness_at_level=2,
       use_bfloat16=False,
+      global_cost_volume=-1,
   ):
     """Instantiate a UFlow model.
 
@@ -114,7 +115,9 @@ class UFlow(object):
         occlusions
       occ_clip_max: dict of string -> float indicating how to clip occlusion
       smoothness_at_level: int, which level to compute smoothness on
-      use_bfloat16: bool, whether to run in bfloat16 mode.
+      use_bfloat16: bool, whether to run in bfloat16 mode
+      global_cost_volume: int, if different than -1, the cost volume is
+        computed globally on the levels greater than value
 
     Returns:
       Uflow object instance.
@@ -133,6 +136,7 @@ class UFlow(object):
     self._stop_gradient_mask = stop_gradient_mask
     self._selfsup_mask = selfsup_mask
     self._num_levels = num_levels
+    self._global_cost_volume = global_cost_volume
 
     self._feature_model = uflow_model.PWCFeaturePyramid(
         level1_num_layers=level1_num_layers,
@@ -152,7 +156,8 @@ class UFlow(object):
         channel_multiplier=channel_multiplier,
         accumulate_flow=accumulate_flow,
         use_bfloat16=use_bfloat16,
-        shared_flow_decoder=shared_flow_decoder)
+        shared_flow_decoder=shared_flow_decoder,
+        global_cost_volume=global_cost_volume)
     # By default, the teacher flow and featuure models are the same as
     # the student flow and feature models.
     self._teacher_flow_model = self._flow_model
