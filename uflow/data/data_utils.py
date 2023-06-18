@@ -278,13 +278,21 @@ def evaluate(
     epe_occ.append(tf.reduce_mean(input_tensor=endpoint_error_occ))
     errors_occ.append(tf.reduce_mean(input_tensor=outliers_occ))
 
+    endpoint_error_occ_zero_mask = tf.constant(0,
+        shape=endpoint_error_occ.shape, dtype=tf.float32)
+
     # EPE s40+: discard all displacements <= 40 pixels
-    endpoint_error_s40plus_occ_mask = tf.math.greater(gt_flow_abs, 40)
-    endpoint_error_s40plus_occ_zero = tf.constant(0,
-        shape=endpoint_error_s40plus_occ_mask.shape, dtype=tf.float32)
+    endpoint_error_s40plus_occ_mask = tf.math.greater(gt_flow_abs, 40.0)
     endpoint_error_s40plus_occ = tf.where(endpoint_error_s40plus_occ_mask,
-        endpoint_error_occ, endpoint_error_s40plus_occ_zero)
-    epe_s40plus_occ.append(tf.reduce_mean(input_tensor=endpoint_error_s40plus_occ))
+        endpoint_error_occ, endpoint_error_occ_zero_mask)
+    endpoint_error_s40plus_occ_count = tf.math.count_nonzero(endpoint_error_s40plus_occ, dtype=tf.float32)
+
+    # Discard frames where there are no velocities > 40
+    if endpoint_error_s40plus_occ_count > 0:
+      endpoint_error_s40plus_occ_sum = tf.reduce_sum(input_tensor=endpoint_error_s40plus_occ)
+      endpoint_error_s40plus_occ_mean = tf.math.divide(tf.cast(endpoint_error_s40plus_occ_sum,
+              'float32'), endpoint_error_s40plus_occ_count)
+      epe_s40plus_occ.append(endpoint_error_s40plus_occ_mean)
 
     if plot_dir and plot_count < num_plots:
       plot_count += 1
