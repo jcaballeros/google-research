@@ -209,6 +209,9 @@ def threshold_epe(min_velocity, max_velocity, gt_flow_abs, endpoint_error_occ):
   endpoint_error_thres_occ_count = tf.math.count_nonzero(
               endpoint_error_thres_occ, dtype=tf.float32)
 
+  # print('Min: ' + str(min_velocity) + ' max: ' + str(max_velocity) +
+  #             ' count ' + str(endpoint_error_thres_occ_count))
+
     # Discard frames where there are no velocities matching
   if endpoint_error_thres_occ_count > 0:
     endpoint_error_thres_occ_sum = tf.reduce_sum(input_tensor=endpoint_error_thres_occ)
@@ -263,6 +266,10 @@ def evaluate(
   all_occlusion_results = defaultdict(lambda: defaultdict(int))
   epe_s40plus_occ = []  # EPE for pixels with displacements larger than 40 pixels.
   epe_s40plus_occ_total_count = 0
+  epe_s10less_occ = []  # EPE for pixels with displacements smaller than 10 pixels.
+  epe_s10less_occ_total_count = 0
+  epe_s10_40_occ = []  # EPE for pixels with displacements between 10 and 40 pixels.
+  epe_s10_40_occ_total_count = 0
 
   plot_count = 0
   eval_count = -1
@@ -325,11 +332,26 @@ def evaluate(
     epe_occ.append(tf.reduce_mean(input_tensor=endpoint_error_occ))
     errors_occ.append(tf.reduce_mean(input_tensor=outliers_occ))
 
-    endpoint_error_s40plus_occ_mean, epe_s40plus_occ_count = threshold_epe(40, None, gt_flow_abs, endpoint_error_occ)
-
+    # Calculate EPE s40+
+    endpoint_error_s40plus_occ_mean, epe_s40plus_occ_count = threshold_epe(40, None,
+                       gt_flow_abs, endpoint_error_occ)
     if epe_s40plus_occ_count > 0:
       epe_s40plus_occ.append(endpoint_error_s40plus_occ_mean)
       epe_s40plus_occ_total_count += epe_s40plus_occ_count
+
+    # Calculate EPE s0-10
+    endpoint_error_s10less_occ_mean, epe_s10less_occ_count = threshold_epe(None, 10,
+                       gt_flow_abs, endpoint_error_occ)
+    if epe_s10less_occ_count > 0:
+      epe_s10less_occ.append(endpoint_error_s10less_occ_mean)
+      epe_s10less_occ_total_count += epe_s10less_occ_count
+
+    # Calculate EPE s10-40
+    endpoint_error_s10_40_occ_mean, epe_s10_40_occ_count = threshold_epe(10, 40,
+                       gt_flow_abs, endpoint_error_occ)
+    if epe_s10_40_occ_count > 0:
+      epe_s10_40_occ.append(endpoint_error_s10_40_occ_mean)
+      epe_s10_40_occ_total_count += epe_s10_40_occ_count
 
     if plot_dir and plot_count < num_plots:
       plot_count += 1
@@ -359,6 +381,10 @@ def evaluate(
       'EPE': np.mean(np.array(epe_occ)),
       'EPE_s40plus': np.mean(np.array(epe_s40plus_occ)),
       'EPE_s40plus_count': epe_s40plus_occ_total_count,
+      'EPE_s10less': np.mean(np.array(epe_s10less_occ)),
+      'EPE_s10less_count': epe_s10less_occ_total_count,
+      'EPE_s10_40': np.mean(np.array(epe_s10_40_occ)),
+      'EPE_s10_40_count': epe_s10_40_occ_total_count,
       'ER': np.mean(np.array(errors_occ)),
       'inf-time(ms)': np.mean(inference_times),
       'eval-time(s)': eval_stop_in_s - eval_start_in_s
@@ -372,7 +398,9 @@ def list_eval_keys(prefix=''):
   """List the keys of the dictionary returned by the evaluate function."""
   keys = [
       'EPE', 'ER', 'inf-time(ms)', 'eval-time(s)', 'occl-f-max',
-      'best-occl-thresh', 'EPE_s40plus', 'EPE_s40plus_count'
+      'best-occl-thresh', 'EPE_s40plus', 'EPE_s40plus_count',
+      'EPE_s10less', 'EPE_s10less_count','EPE_s10_40',
+      'EPE_s10_40_count'
   ]
   if prefix:
     return [prefix + '-' + k for k in keys]
