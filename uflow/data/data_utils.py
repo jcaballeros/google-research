@@ -199,7 +199,7 @@ def threshold_epe(min_velocity, max_velocity, gt_flow_abs, endpoint_error_occ):
       mask = tf.math.greater(gt_flow_abs, min_velocity)
     else:
       # All the pixels with velocities between min and max
-      mask = tf.math.logical_or(tf.less_equal(gt_flow_abs, max_velocity),
+      mask = tf.math.logical_and(tf.less_equal(gt_flow_abs, max_velocity),
               tf.greater_equal(gt_flow_abs, min_velocity))
 
   endpoint_error_occ_zero_mask = tf.constant(0,
