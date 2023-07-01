@@ -37,7 +37,9 @@ from tensorflow.keras.layers import LeakyReLU
 from tensorflow.keras.models import Sequential
 
 from uflow import uflow_utils
-
+from uflow import local_gocor
+from uflow import correlation
+from uflow.optimizer_selection_functions import define_optimizer_local_corr
 
 def normalize_features(feature_list, normalize, center, moments_across_channels,
                        moments_across_images):
@@ -173,6 +175,20 @@ class PWCFlow(Model):
       # pylint:disable=invalid-name
       self._1x1_shared_decoder = self._build_1x1_shared_decoder()
 
+    initializer = local_gocor.LocalCorrSimpleInitializer()
+    # optimizer = define_optimizer_local_corr(num_iter=3, init_step_length=1.0, init_filter_reg=1e-2,
+    #                                         num_dist_bins=10, bin_displacement=0.5,
+    #                                         v_minus_act='sigmoid', v_minus_init_factor=4.0, search_size=9,
+    #                                         apply_query_loss=False, reg_kernel_size=3, reg_inter_dim=1, reg_output_dim=1.0)
+    local_gocor_arguments= {'optim_iter':3, 'num_features': 512, 'search_size': 9, 'init_step_length': 1.0,
+                            'init_filter_reg': 1e-2, 'min_filter_reg': 1e-5,
+                            'num_dist_bins':10, 'bin_displacement': 0.5, 'init_gauss_sigma_DIMP':1.0,
+                            'v_minus_act': 'sigmoid', 'v_minus_init_factor': 4.0,
+                            'apply_query_loss': False, 'reg_kernel_size': 3,
+                            'reg_inter_dim': 1, 'reg_output_dim': 1.0}     
+    optimizer = define_optimizer_local_corr(local_gocor_arguments)
+    self.local_corr = local_gocor.LocalGOCor(filter_initializer=initializer, filter_optimizer=optimizer)
+
   def call(self, feature_pyramid1, feature_pyramid2, training=False):
     """Run the model."""
     context = None
@@ -214,8 +230,16 @@ class PWCFlow(Model):
           moments_across_images=True)
 
       if self._use_cost_volume:
-        cost_volume = compute_cost_volume(
-            features1_normalized, warped2_normalized, max_displacement=4)
+        # cost_volume = compute_cost_volume(
+        #     features1_normalized, warped2_normalized, max_displacement=4)
+        cost_volume = self.local_corr(features1_normalized, warped2_normalized)
+        features1_shape = features1.shape
+        print('features1 shape ' + str(features1_shape))
+        print('cost volume original shape ' + str(cost_volume.shape))
+        cost_volume = tf.reshape(cost_volume, [cost_volume.shape[0], cost_volume.shape[2], cost_volume.shape[3], cost_volume.shape[1]])
+        print('cost volume reshaped shape ' + str(cost_volume.shape))
+        # cost_volume = cost_volume[:, :features1_shape[1], :, :]
+        # print('cost volume sliced shape ' + str(cost_volume.shape))
       else:
         concat_features = Concatenate(axis=-1)(
             [features1_normalized, warped2_normalized])
@@ -232,6 +256,7 @@ class PWCFlow(Model):
 
       # Compute context and flow from previous flow, cost volume, and features1.
       if flow_up is None:
+        print('Cost volume shape flow_up none is ' + str(cost_volume.shape)) 
         x_in = Concatenate(axis=-1)([cost_volume, features1])
       else:
         if context_up is None:
