@@ -8,14 +8,9 @@ else:
 
 import tensorflow as tf
 
-
-class Stream:
-    #ptr = torch.cuda.current_stream().cuda_stream
-    #ptr = tf.raw_ops.StreamActive(stream_name="")
-    # stream = tf.compat.v1.cuda.Stream()
-    # ptr = stream.cuda_stream
-    print('hello')
-
+config = tf.compat.v1.ConfigProto()
+config.gpu_options.allow_growth = True
+session = tf.compat.v1.Session(config=config)
 
 kernel_Correlation_rearrange = '''
 	extern "C" __global__ void kernel_Correlation_rearrange(
@@ -244,124 +239,26 @@ kernel_Correlation_updateGradSecond = '''
 	} }
 '''
 
-def cupy_kernel(strFunction, objectVariables):
-    strKernel = globals()[strFunction]
-
-    while True:
-        objectMatch = re.search('(SIZE_)([0-4])(\()([^\)]*)(\))', strKernel)
-
-        if objectMatch is None:
-            break
-
-        intArg = int(objectMatch.group(2))
-
-        strTensor = objectMatch.group(4)
-        intSizes = tf.shape(objectVariables[strTensor])
-
-        strKernel = strKernel.replace(objectMatch.group(), str(intSizes[intArg]))
-
-    while True:
-        objectMatch = re.search('(VALUE_)([0-4])(\()([^\)]+)(\))', strKernel)
-
-        if objectMatch is None:
-            break
-
-        intArgs = int(objectMatch.group(2))
-        strArgs = objectMatch.group(4).split(',')
-
-        strTensor = strArgs[0]
-        intStrides = objectVariables[strTensor].stride()
-        strIndex = ['((' + strArgs[intArg + 1].replace('{', '(').replace('}', ')').strip() + ')*' + str(
-            intStrides[intArg]) + ')' for intArg in range(intArgs)]
-
-        strKernel = strKernel.replace(objectMatch.group(0), strTensor + '[' + str.join('+', strIndex) + ']')
-
-    return strKernel
-
-def tf2cp(x):
-    dlcapsule = tf.experimental.dlpack.to_dlpack(x)
-    return cp.fromDlpack(dlcapsule)
-
-#@cupyutil.memoize(for_each_device=True)
-def cupy_launch(strFunction, strKernel):
-    return cupy.cuda.compile_with_cache(strKernel).get_function(strFunction)
-
-def cupy_run1(inp, out):
-    cupy_launch('kernel_Correlation_rearrange', cupy_kernel('kernel_Correlation_rearrange', {
-        'input': inp,
-        'output': out
-    }))(
-        grid=tuple([int((n + 16 - 1) / 16), tf.shape(first)[1], tf.shape(first)[0]]),
-        block=tuple([16, 1, 1]),
-        args=[n, id(inp), id(out)],
-        stream=Stream
-    )
-
-def cupy_run2(inp, out, n):
-    inp_cp = tf2cp(inp)
-    out_cp = tf2cp(out)
-    cupy_launch('kernel_Correlation_rearrange', cupy_kernel('kernel_Correlation_rearrange', {
-        'input': inp_cp,
-        'output': out_cp
-    }))(
-        grid=tuple([int((n + 16 - 1) / 16), tf.shape(inp_cp)[1], tf.shape(inp_cp)[0]]),
-        block=tuple([16, 1, 1]),
-        args=[n, id(inp_cp), id(out_cp)],
-        stream=Stream
-    )
-
-def cupy_run3(inp0, inp1, out):
-    rbot0 = tf2cp(inp0)
-    rbot1= tf2cp(inp1)
-    output = tf2cp(out)
-    cupy_launch('kernel_Correlation_updateOutput', cupy_kernel('kernel_Correlation_updateOutput', {
-        'rbot0': rbot0,
-        'rbot1': rbot1,
-        'top': output
-    }))(
-        grid=tuple([tf.shape(output)[3], tf.shape(output)[2], tf.shape(output)[0]]),
-        block=tuple([32, 1, 1]),
-        shared_mem=tf.shape(first)[1] * 4,
-        args=[n, id(rbot0), id(rbot1), id(output)],
-        stream=Stream
-    )
-
-    
 class FunctionCorrelation(tf.keras.layers.Layer):
     def __init__(self):
         super(FunctionCorrelation, self).__init__()
 
-    def save_tensors(self, first, second, rbot0, rbot1):
-        # Save tensors for backward computation
-        tf.py_function(lambda: None, [first, second, rbot0, rbot1], [])
-
-
-    def call(self, first, second):
+    def call(self, otherfirst, second):
+        print('otherfirst shape is')
+        print(otherfirst.shape)
         rbot0 = tf.zeros([tf.shape(first)[0], tf.shape(first)[2] + 8, tf.shape(first)[3] + 8, tf.shape(first)[1]], dtype=first.dtype)
-        rbot0_tmp = tf.py_function(func=tf.experimental.dlpack.to_dlpack,
-                             inp=[rbot0], Tout=first.dtype)
-        rbot0_final = tf.py_function(func=cupy.fromDlpack, inp=[rbot0_tmp], Tout=first.dtype)
         rbot1 = tf.zeros([tf.shape(first)[0], tf.shape(first)[2] + 8, tf.shape(first)[3] + 8, tf.shape(first)[1]], dtype=first.dtype)
-
-        first_tmp = tf.py_function(func=tf.experimental.dlpack.to_dlpack,
-                             inp=[first], Tout=first.dtype)
-        first_final = tf.py_function(func=cupy.fromDlpack, inp=[first_tmp], Tout=first.dtype)
-
-        self.save_tensors(first, second, rbot0, rbot1)
 
         output = tf.zeros([tf.shape(first)[0], 81, tf.shape(first)[2], tf.shape(first)[3]], dtype=first.dtype)
 
         if tf.test.is_gpu_available():
             n = tf.shape(first)[2] * tf.shape(first)[3]
-            #cupy run
-            tf.py_function(func=cupy_run1, inp=[first_final, rbot0_final], Tout=rbot0_final.dtype)
-            n = tf.shape(second)[2] * tf.shape(second)[3]
-            #cupy run 2
-            tf.py_function(func=cupy_run2, inp=[second, rbot1], Tout=rbot1.dtype)
-            n = tf.shape(output)[1] * tf.shape(output)[2] * tf.shape(output)[3]
-
-            #cupy run3
-            tf.py_function(func=cupy_run3, inp=[rbot0, rbot1, output], Tout=rbot1.dtype)
+            print('n value is ' + str(n.eval(session=tf.compat.v1.Session())))
+            correlation_lib = tf.load_op_library('./uflow/cuda_op_kernel.so')
+            rbot0 = correlation_lib.correlation_rearrange(tf.shape(first), tf.shape(rbot0), first, rbot0)
+            rbot1 = correlation_lib.correlation_rearrange(tf.shape(second), tf.shape(rbot1), second, rbot1)
+            print('Rearrange result is')
+            print(rbot1.eval(session=tf.compat.v1.Session()))
 
         elif not tf.test.is_gpu_available():
             raise NotImplementedError()
@@ -388,40 +285,10 @@ class FunctionCorrelation(tf.keras.layers.Layer):
             if gradFirst is not None:
                 for intSample in range(tf.shape(first)[0]):
                     n = tf.shape(first)[1] * tf.shape(first)[2] * tf.shape(first)[3]
-                    cupy_launch('kernel_Correlation_updateGradFirst',
-                                cupy_kernel('kernel_Correlation_updateGradFirst', {
-                                    'rbot0': rbot0,
-                                    'rbot1': rbot1,
-                                    'gradOutput': gradOutput,
-                                    'gradFirst': gradFirst,
-                                    'gradSecond': None
-                                }))(
-                        grid=tuple([int((n + 512 - 1) / 512), 1, 1]),
-                        block=tuple([512, 1, 1]),
-                        args=[n, intSample, id(rbot0), id(rbot1), id(gradOutput),
-                              id(gradFirst), None],
-                        stream=Stream
-                    )
 
             if gradSecond is not None:
                 for intSample in range(tf.shape(first)[0]):
                     n = tf.shape(first)[1] * tf.shape(first)[2] * tf.shape(first)[3]
-                    cupy_launch('kernel_Correlation_updateGradSecond',
-                                cupy_kernel('kernel_Correlation_updateGradSecond', {
-                                    'rbot0': rbot0,
-                                    'rbot1': rbot1,
-                                    'gradOutput': gradOutput,
-                                    'gradFirst': None,
-                                    'gradSecond': gradSecond
-                                }))(
-                        grid=tuple([int((n + 512 - 1) / 512), 1, 1]),
-                        block=tuple([512, 1, 1]),
-                        args=[n, intSample, id(rbot0), id(rbot1), id(gradOutput), None,
-                              id(gradSecond)],
-                        stream=Stream
-                    )
-
-
 
         elif not tf.test.is_gpu_available():
             raise NotImplementedError()
@@ -439,53 +306,13 @@ class FunctionCorrelationTranspose(tf.keras.layers.Layer):
 
     def call(self, input, second):
         rbot0 = tf.zeros([tf.shape(second)[0], tf.shape(second)[2] + 8, tf.shape(second)[3] + 8, tf.shape(second)[1]], dtype=second.dtype)
-        rbot0_tmp = tf.py_function(func=tf.experimental.dlpack.to_dlpack, inp=[rbot0], Tout=rbot0.dtype)
-        rbot0_final = tf.py_function(func=cupy.fromDlpack, inp=[rbot0_tmp], Tout=rbot0.dtype)
-
         rbot1 = tf.zeros([tf.shape(second)[0], tf.shape(second)[2] + 8, tf.shape(second)[3] + 8, tf.shape(second)[1]], dtype=second.dtype)
-
-        rbot1_tmp = tf.py_function(func=tf.experimental.dlpack.to_dlpack, inp=[rbot1], Tout=rbot1.dtype)
-
-        rbot1_final = tf.py_function(func=cupy.fromDlpack, inp=[rbot1_tmp], Tout=rbot1.dtype)
-
-        self.save_tensors(input, second, rbot0, rbot1)
-
         output = tf.zeros([tf.shape(second)[0], tf.shape(second)[1], tf.shape(second)[2], tf.shape(second)[3]], dtype=second.dtype)
-
-        second_tmp = tf.py_function(func=tf.experimental.dlpack.to_dlpack, inp=[second], Tout=second.dtype)
-        second_final = tf.py_function(func=cupy.fromDlpack, inp=[second_tmp], Tout=second.dtype)
 
         if tf.test.is_gpu_available():
             n = tf.shape(second)[2] * tf.shape(second)[3]
-            # cupy_launch('kernel_Correlation_rearrange', cupy_kernel('kernel_Correlation_rearrange', {
-            #     'input': second,
-            #     'output': rbot1
-            # }))(
-            #     grid=tuple([int((n + 16 - 1) / 16), tf.shape(second)[1], tf.shape(second)[0]]),
-            #     block=tuple([16, 1, 1]),
-            #     args=[n, id(second), id(rbot1)],
-            #     stream=Stream
-            # )
-
-            tf.py_function(func=cupy_run2, inp=[second_final, rbot1_final, n], Tout=rbot1_final.dtype)
-
             for intSample in range(tf.shape(second)[0]):
                 n = tf.shape(second)[1] * tf.shape(second)[2] * tf.shape(second)[3]
-                tf.py_function(func=cupy_run3, inp=[rbot0_final, rbot1_final, output], Tout=rbot1.dtype)
-            #     cupy_launch('kernel_Correlation_updateGradFirst',
-            #                 cupy_kernel('kernel_Correlation_updateGradFirst', {
-            #                     'rbot0': rbot0,
-            #                     'rbot1': rbot1,
-            #                     'gradOutput': input,
-            #                     'gradFirst': output,
-            #                     'gradSecond': None
-            #                 }))(
-            #         grid=tuple([int((n + 512 - 1) / 512), 1, 1]),
-            #         block=tuple([512, 1, 1]),
-            #         args=[n, intSample, id(rbot0), id(rbot1), id(input),
-            #               id(output), None],
-            #         stream=Stream
-            #     )
 
         elif not tf.test.is_gpu_available():
             raise NotImplementedError()
@@ -510,47 +337,13 @@ class FunctionCorrelationTranspose(tf.keras.layers.Layer):
         if tf.test.is_gpu_available():
             if gradInput is not None or gradSecond is not None:
                 n = tf.shape(second)[2] * tf.shape(second)[3]
-                cupy_launch('kernel_Correlation_rearrange', cupy_kernel('kernel_Correlation_rearrange', {
-                    'input': gradOutput,
-                    'output': rbot0
-                }))(
-                    grid=tuple([int((n + 16 - 1) / 16), tf.shape(gradOutput)[1], tf.shape(gradOutput)[0]]),
-                    block=tuple([16, 1, 1]),
-                    args=[n, id(gradOutput), id(rbot0)],
-                    stream=Stream
-                )
 
             if gradInput is not None:
                 n = tf.shape(gradInput)[1] * tf.shape(gradInput)[2] * tf.shape(gradInput)[3]
-                cupy_launch('kernel_Correlation_updateOutput', cupy_kernel('kernel_Correlation_updateOutput', {
-                    'rbot0': rbot0,
-                    'rbot1': rbot1,
-                    'top': gradInput
-                }))(
-                    grid=tuple([tf.shape(gradInput)[3], tf.shape(gradInput)[2], tf.shape(gradInput)[0]]),
-                    block=tuple([32, 1, 1]),
-                    shared_mem=tf.shape(gradOutput)[1] * 4,
-                    args=[n, id(rbot0), id(rbot1), id(gradInput)],
-                    stream=Stream
-                )
 
             if gradSecond is not None:
                 for intSample in range(tf.shape(second)[0]):
                     n = tf.shape(second)[1] * tf.shape(second)[2] * tf.shape(second)[3]
-                    cupy_launch('kernel_Correlation_updateGradSecond',
-                                cupy_kernel('kernel_Correlation_updateGradSecond', {
-                                    'rbot0': rbot0,
-                                    'rbot1': rbot1,
-                                    'gradOutput': input,
-                                    'gradFirst': None,
-                                    'gradSecond': gradSecond
-                                }))(
-                        grid=tuple([int((n + 512 - 1) / 512), 1, 1]),
-                        block=tuple([512, 1, 1]),
-                        args=[n, intSample, id(rbot0), id(rbot1), id(input), None,
-                              id(gradSecond)],
-                        stream=Stream
-                    )
 
         elif not tf.test.is_gpu_available():
             raise NotImplementedError()
