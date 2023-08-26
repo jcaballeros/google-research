@@ -243,9 +243,7 @@ class FunctionCorrelation(tf.keras.layers.Layer):
     def __init__(self):
         super(FunctionCorrelation, self).__init__()
 
-    def call(self, otherfirst, second):
-        print('otherfirst shape is')
-        print(otherfirst.shape)
+    def call(self, first, second):
         rbot0 = tf.zeros([tf.shape(first)[0], tf.shape(first)[2] + 8, tf.shape(first)[3] + 8, tf.shape(first)[1]], dtype=first.dtype)
         rbot1 = tf.zeros([tf.shape(first)[0], tf.shape(first)[2] + 8, tf.shape(first)[3] + 8, tf.shape(first)[1]], dtype=first.dtype)
 
@@ -257,8 +255,8 @@ class FunctionCorrelation(tf.keras.layers.Layer):
             correlation_lib = tf.load_op_library('./uflow/cuda_op_kernel.so')
             rbot0 = correlation_lib.correlation_rearrange(tf.shape(first), tf.shape(rbot0), first, rbot0)
             rbot1 = correlation_lib.correlation_rearrange(tf.shape(second), tf.shape(rbot1), second, rbot1)
-            print('Rearrange result is')
-            print(rbot1.eval(session=tf.compat.v1.Session()))
+
+            output = correlation_lib.correlation_update(tf.shape(rbot0), tf.shape(output), rbot0, rbot1, output);
 
         elif not tf.test.is_gpu_available():
             raise NotImplementedError()
