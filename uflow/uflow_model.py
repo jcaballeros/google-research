@@ -37,6 +37,7 @@ from tensorflow.keras.layers import LeakyReLU
 from tensorflow.keras.models import Sequential
 
 from uflow import uflow_utils
+from uflow import gocor_model
 
 
 def normalize_features(feature_list, normalize, center, moments_across_channels,
@@ -83,7 +84,7 @@ def normalize_features(feature_list, normalize, center, moments_across_channels,
   return feature_list
 
 
-def compute_cost_volume(features1, features2, max_displacement):
+def compute_cost_volume(features1, features2, max_displacement, gocor_model):
   """Compute the cost volume between features1 and features2.
 
   Displace features2 up to max_displacement in any direction and compute the
@@ -98,6 +99,9 @@ def compute_cost_volume(features1, features2, max_displacement):
     tf.tensor of shape [b, h, w, (2 * max_displacement + 1) ** 2] of costs for
     all displacements.
   """
+
+  if (gocor_model is not None):
+    features1 = gocor_model(features1, features2)
 
   # Set maximum displacement and compute the number of image shifts.
   _, height, width, _ = features1.shape.as_list()
@@ -128,7 +132,7 @@ def compute_cost_volume(features1, features2, max_displacement):
   return cost_volume
 
 
-def compute_global_cost_volume(features1, features2):
+def compute_global_cost_volume(features1, features2, gocor_model):
   """Compute the global cost volume between features1 and features2.
 
   Displace features2 up to height-1 in the vertical direction and
@@ -145,6 +149,9 @@ def compute_global_cost_volume(features1, features2):
   """
 
   _, height, width, _ = features1.shape.as_list()
+
+  if (gocor_model is not None):
+    features1 = gocor_model(features1, features2)
 
   # Pad features2 such that shifts do not go out of bounds.
   features2_padded = tf.concat([features2, features2[:, :height-1, :, :]], 1)
@@ -198,6 +205,7 @@ class PWCFlow(Model):
     self._shared_flow_decoder = shared_flow_decoder
     self._global_cost_volume = global_cost_volume
     self._use_gocor = use_gocor
+    self._gocor_model = [None] * num_levels
 
     self._refine_model = self._build_refinement_model()
     self._flow_layers = self._build_flow_layers()
@@ -210,6 +218,14 @@ class PWCFlow(Model):
     if self._shared_flow_decoder:
       # pylint:disable=invalid-name
       self._1x1_shared_decoder = self._build_1x1_shared_decoder()
+
+    if self._use_gocor:
+      for pyr_level in range(1, num_levels):
+        if ((-1 != self._global_cost_volume) and (self._global_cost_volume < pyr_level)):
+          self._gocor_model[pyr_level] = gocor_model.GlobalGOCor(use_bfloat16=use_bfloat16)
+        else:
+          self._gocor_model[pyr_level] = gocor_model.LocalGOCor(use_bfloat16=use_bfloat16)
+
 
   def call(self, feature_pyramid1, feature_pyramid2, training=False):
     """Run the model."""
@@ -255,10 +271,12 @@ class PWCFlow(Model):
         if ((-1 != self._global_cost_volume) and (self._global_cost_volume < level)):
           # Use global cost volume on the levels greater than global_cost_volume value
           cost_volume = compute_global_cost_volume(
-            features1_normalized, warped2_normalized)
+            features1_normalized, warped2_normalized,
+                gocor_model=self._gocor_model[level])
         else:
           cost_volume = compute_cost_volume(
-            features1_normalized, warped2_normalized, max_displacement=4)
+            features1_normalized, warped2_normalized, max_displacement=4,
+                gocor_model=self._gocor_model[level])
       else:
         concat_features = Concatenate(axis=-1)(
             [features1_normalized, warped2_normalized])

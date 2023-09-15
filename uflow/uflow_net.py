@@ -28,7 +28,6 @@ import tensorflow as tf
 from uflow import uflow_model
 from uflow import uflow_utils
 
-
 @gin.configurable
 class UFlow(object):
   """Simple interface with infer and train methods."""
@@ -161,7 +160,7 @@ class UFlow(object):
         use_bfloat16=use_bfloat16,
         shared_flow_decoder=shared_flow_decoder,
         global_cost_volume=global_cost_volume,
-        use_gocor=use_gocor)
+        use_gocor=self._use_gocor)
     # By default, the teacher flow and featuure models are the same as
     # the student flow and feature models.
     self._teacher_flow_model = self._flow_model
