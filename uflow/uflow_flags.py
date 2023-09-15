@@ -90,6 +90,8 @@ flags.DEFINE_bool(
 flags.DEFINE_integer('num_occlusion_iterations', 1,
                      'If occlusion estimation is "iterative"')
 flags.DEFINE_bool('only_forward', False, '')
+flags.DEFINE_integer('global_cost_volume', -1, 'Compute the cost volume globally '
+                     'on the levels greater than the value specified, -1 to disable')
 # Data augmentation (-> now gin configurable)
 flags.DEFINE_string('teacher_image_version', 'original',
                     'one of original, augmented')

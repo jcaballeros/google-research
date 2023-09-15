@@ -128,6 +128,40 @@ def compute_cost_volume(features1, features2, max_displacement):
   return cost_volume
 
 
+def compute_global_cost_volume(features1, features2):
+  """Compute the global cost volume between features1 and features2.
+
+  Displace features2 up to height-1 in the vertical direction and
+  up to width-1 in the horizontal direction and compute the per pixel
+  cost of features1 and the displaced features2.
+
+  Args:
+    features1: tf.tensor of shape [b, h, w, c]
+    features2: tf.tensor of shape [b, h, w, c]
+
+  Returns:
+    tf.tensor of shape [b, h, w, (h*w)] of costs for
+    all displacements.
+  """
+
+  _, height, width, _ = features1.shape.as_list()
+
+  # Pad features2 such that shifts do not go out of bounds.
+  features2_padded = tf.concat([features2, features2[:, :height-1, :, :]], 1)
+  features2_padded = tf.concat([features2_padded, features2_padded[:, :, : width-1, :]], 2)
+  cost_list = []
+  for i in range(height):
+    for j in range(width):
+      corr = tf.reduce_mean(
+          input_tensor=features1 *
+          features2_padded[:, i:(height + i), j:(width + j), :],
+          axis=-1,
+          keepdims=True)
+      cost_list.append(corr)
+  cost_volume = tf.concat(cost_list, axis=-1)
+  return cost_volume
+
+
 class PWCFlow(Model):
   """Model for estimating flow based on the feature pyramids of two images."""
 
@@ -142,7 +176,8 @@ class PWCFlow(Model):
                use_feature_warp=True,
                accumulate_flow=True,
                use_bfloat16=False,
-               shared_flow_decoder=False):
+               shared_flow_decoder=False,
+               global_cost_volume=-1):
 
     super(PWCFlow, self).__init__()
     self._use_bfloat16 = use_bfloat16
@@ -160,6 +195,7 @@ class PWCFlow(Model):
     self._use_feature_warp = use_feature_warp
     self._accumulate_flow = accumulate_flow
     self._shared_flow_decoder = shared_flow_decoder
+    self._global_cost_volume = global_cost_volume
 
     self._refine_model = self._build_refinement_model()
     self._flow_layers = self._build_flow_layers()
@@ -214,7 +250,12 @@ class PWCFlow(Model):
           moments_across_images=True)
 
       if self._use_cost_volume:
-        cost_volume = compute_cost_volume(
+        if ((-1 != self._global_cost_volume) and (self._global_cost_volume < level)):
+          # Use global cost volume on the levels greater than global_cost_volume value
+          cost_volume = compute_global_cost_volume(
+            features1_normalized, warped2_normalized)
+        else:
+          cost_volume = compute_cost_volume(
             features1_normalized, warped2_normalized, max_displacement=4)
       else:
         concat_features = Concatenate(axis=-1)(

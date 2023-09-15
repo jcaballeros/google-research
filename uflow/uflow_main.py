@@ -112,6 +112,7 @@ def create_uflow():
       occ_thresholds=occ_thresholds,
       occ_clip_max=occ_clip_max,
       smoothness_at_level=FLAGS.smoothness_at_level,
+      global_cost_volume=FLAGS.global_cost_volume,
   )
   return uflow
 
