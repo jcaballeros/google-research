@@ -113,7 +113,8 @@ def create_uflow():
       occ_clip_max=occ_clip_max,
       smoothness_at_level=FLAGS.smoothness_at_level,
       global_cost_volume=FLAGS.global_cost_volume,
-  )
+      use_gocor=FLAGS.use_gocor,
+)
   return uflow
 
 

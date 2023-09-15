@@ -68,6 +68,7 @@ class UFlow(object):
       smoothness_at_level=2,
       use_bfloat16=False,
       global_cost_volume=-1,
+      use_gocor=False,
   ):
     """Instantiate a UFlow model.
 
@@ -118,6 +119,7 @@ class UFlow(object):
       use_bfloat16: bool, whether to run in bfloat16 mode
       global_cost_volume: int, if different than -1, the cost volume is
         computed globally on the levels greater than value
+      global_cost_volume: bool, toggles gocor support
 
     Returns:
       Uflow object instance.
@@ -137,6 +139,7 @@ class UFlow(object):
     self._selfsup_mask = selfsup_mask
     self._num_levels = num_levels
     self._global_cost_volume = global_cost_volume
+    self._use_gocor = use_gocor
 
     self._feature_model = uflow_model.PWCFeaturePyramid(
         level1_num_layers=level1_num_layers,
@@ -157,7 +160,8 @@ class UFlow(object):
         accumulate_flow=accumulate_flow,
         use_bfloat16=use_bfloat16,
         shared_flow_decoder=shared_flow_decoder,
-        global_cost_volume=global_cost_volume)
+        global_cost_volume=global_cost_volume,
+        use_gocor=use_gocor)
     # By default, the teacher flow and featuure models are the same as
     # the student flow and feature models.
     self._teacher_flow_model = self._flow_model

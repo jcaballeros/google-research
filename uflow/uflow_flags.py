@@ -48,6 +48,10 @@ flags.DEFINE_bool(
 flags.DEFINE_bool(
     'reset_optimizer', True, 'Reset optimizer internals after '
     'loading from init_checkpoint')
+flags.DEFINE_bool(
+    'use_gocor', False, 'Whether or not to use GOCor for '
+    'the correlation layer')
+
 
 # Training flags.
 flags.DEFINE_bool('evaluate_during_train', False,
