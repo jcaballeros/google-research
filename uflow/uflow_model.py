@@ -177,7 +177,8 @@ class PWCFlow(Model):
                accumulate_flow=True,
                use_bfloat16=False,
                shared_flow_decoder=False,
-               global_cost_volume=-1):
+               global_cost_volume=-1,
+               use_gocor=False):
 
     super(PWCFlow, self).__init__()
     self._use_bfloat16 = use_bfloat16
@@ -196,6 +197,7 @@ class PWCFlow(Model):
     self._accumulate_flow = accumulate_flow
     self._shared_flow_decoder = shared_flow_decoder
     self._global_cost_volume = global_cost_volume
+    self._use_gocor = use_gocor
 
     self._refine_model = self._build_refinement_model()
     self._flow_layers = self._build_flow_layers()
