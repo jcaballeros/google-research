@@ -139,7 +139,8 @@ class PWCFlow(Model):
         if ((-1 != self._global_cost_volume) and (self._global_cost_volume < pyr_level)):
           self._gocor_model[pyr_level] = gocor_model.GlobalGOCor(use_bfloat16=use_bfloat16)
         else:
-          self._gocor_model[pyr_level] = gocor_model.LocalGOCor(use_bfloat16=use_bfloat16, num_iter=3)
+          self._gocor_model[pyr_level] = gocor_model.LocalGOCor(use_bfloat16=use_bfloat16,
+              num_iter=3, bin_displacement=0.5)
 
 
   def call(self, feature_pyramid1, feature_pyramid2, training=False):
