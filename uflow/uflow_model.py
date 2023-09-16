@@ -84,91 +84,6 @@ def normalize_features(feature_list, normalize, center, moments_across_channels,
   return feature_list
 
 
-def compute_cost_volume(features1, features2, max_displacement, gocor_model):
-  """Compute the cost volume between features1 and features2.
-
-  Displace features2 up to max_displacement in any direction and compute the
-  per pixel cost of features1 and the displaced features2.
-
-  Args:
-    features1: tf.tensor of shape [b, h, w, c]
-    features2: tf.tensor of shape [b, h, w, c]
-    max_displacement: int, maximum displacement for cost volume computation.
-
-  Returns:
-    tf.tensor of shape [b, h, w, (2 * max_displacement + 1) ** 2] of costs for
-    all displacements.
-  """
-
-  if (gocor_model is not None):
-    features1 = gocor_model(features1, features2)
-
-  # Set maximum displacement and compute the number of image shifts.
-  _, height, width, _ = features1.shape.as_list()
-  if max_displacement <= 0 or max_displacement >= height:
-    raise ValueError(f'Max displacement of {max_displacement} is too large.')
-
-  max_disp = max_displacement
-  num_shifts = 2 * max_disp + 1
-
-  # Pad features2 and shift it while keeping features1 fixed to compute the
-  # cost volume through correlation.
-
-  # Pad features2 such that shifts do not go out of bounds.
-  features2_padded = tf.pad(
-      tensor=features2,
-      paddings=[[0, 0], [max_disp, max_disp], [max_disp, max_disp], [0, 0]],
-      mode='CONSTANT')
-  cost_list = []
-  for i in range(num_shifts):
-    for j in range(num_shifts):
-      corr = tf.reduce_mean(
-          input_tensor=features1 *
-          features2_padded[:, i:(height + i), j:(width + j), :],
-          axis=-1,
-          keepdims=True)
-      cost_list.append(corr)
-  cost_volume = tf.concat(cost_list, axis=-1)
-  return cost_volume
-
-
-def compute_global_cost_volume(features1, features2, gocor_model):
-  """Compute the global cost volume between features1 and features2.
-
-  Displace features2 up to height-1 in the vertical direction and
-  up to width-1 in the horizontal direction and compute the per pixel
-  cost of features1 and the displaced features2.
-
-  Args:
-    features1: tf.tensor of shape [b, h, w, c]
-    features2: tf.tensor of shape [b, h, w, c]
-
-  Returns:
-    tf.tensor of shape [b, h, w, (h*w)] of costs for
-    all displacements.
-  """
-
-  _, height, width, _ = features1.shape.as_list()
-
-  if (gocor_model is not None):
-    features1 = gocor_model(features1, features2)
-
-  # Pad features2 such that shifts do not go out of bounds.
-  features2_padded = tf.concat([features2, features2[:, :height-1, :, :]], 1)
-  features2_padded = tf.concat([features2_padded, features2_padded[:, :, : width-1, :]], 2)
-  cost_list = []
-  for i in range(height):
-    for j in range(width):
-      corr = tf.reduce_mean(
-          input_tensor=features1 *
-          features2_padded[:, i:(height + i), j:(width + j), :],
-          axis=-1,
-          keepdims=True)
-      cost_list.append(corr)
-  cost_volume = tf.concat(cost_list, axis=-1)
-  return cost_volume
-
-
 class PWCFlow(Model):
   """Model for estimating flow based on the feature pyramids of two images."""
 
@@ -224,7 +139,7 @@ class PWCFlow(Model):
         if ((-1 != self._global_cost_volume) and (self._global_cost_volume < pyr_level)):
           self._gocor_model[pyr_level] = gocor_model.GlobalGOCor(use_bfloat16=use_bfloat16)
         else:
-          self._gocor_model[pyr_level] = gocor_model.LocalGOCor(use_bfloat16=use_bfloat16)
+          self._gocor_model[pyr_level] = gocor_model.LocalGOCor(use_bfloat16=use_bfloat16, num_iter=3)
 
 
   def call(self, feature_pyramid1, feature_pyramid2, training=False):
@@ -268,15 +183,16 @@ class PWCFlow(Model):
           moments_across_images=True)
 
       if self._use_cost_volume:
+        if (self._gocor_model[level] is not None):
+            features1_normalized = self._gocor_model[level](features1_normalized, warped2_normalized)
+
         if ((-1 != self._global_cost_volume) and (self._global_cost_volume < level)):
           # Use global cost volume on the levels greater than global_cost_volume value
-          cost_volume = compute_global_cost_volume(
-            features1_normalized, warped2_normalized,
-                gocor_model=self._gocor_model[level])
+          cost_volume = uflow_utils.compute_global_cost_volume(
+            features1_normalized, warped2_normalized)
         else:
-          cost_volume = compute_cost_volume(
-            features1_normalized, warped2_normalized, max_displacement=4,
-                gocor_model=self._gocor_model[level])
+          cost_volume = uflow_utils.compute_local_cost_volume(
+            features1_normalized, warped2_normalized, max_displacement=4)
       else:
         concat_features = Concatenate(axis=-1)(
             [features1_normalized, warped2_normalized])

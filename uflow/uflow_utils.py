@@ -24,6 +24,81 @@ import tensorflow as tf
 from uflow import uflow_plotting
 from uflow.uflow_resampler import resampler
 
+def compute_local_cost_volume(features1, features2, max_displacement):
+  """Compute the cost volume between features1 and features2.
+
+  Displace features2 up to max_displacement in any direction and compute the
+  per pixel cost of features1 and the displaced features2.
+
+  Args:
+    features1: tf.tensor of shape [b, h, w, c]
+    features2: tf.tensor of shape [b, h, w, c]
+    max_displacement: int, maximum displacement for cost volume computation.
+
+  Returns:
+    tf.tensor of shape [b, h, w, (2 * max_displacement + 1) ** 2] of costs for
+    all displacements.
+  """
+  # Set maximum displacement and compute the number of image shifts.
+  _, height, width, _ = features1.shape.as_list()
+  if max_displacement <= 0 or max_displacement >= height:
+    raise ValueError(f'Max displacement of {max_displacement} is too large.')
+
+  max_disp = max_displacement
+  num_shifts = 2 * max_disp + 1
+
+  # Pad features2 and shift it while keeping features1 fixed to compute the
+  # cost volume through correlation.
+
+  # Pad features2 such that shifts do not go out of bounds.
+  features2_padded = tf.pad(
+      tensor=features2,
+      paddings=[[0, 0], [max_disp, max_disp], [max_disp, max_disp], [0, 0]],
+      mode='CONSTANT')
+  cost_list = []
+  for i in range(num_shifts):
+    for j in range(num_shifts):
+      corr = tf.reduce_mean(
+          input_tensor=features1 *
+          features2_padded[:, i:(height + i), j:(width + j), :],
+          axis=-1,
+          keepdims=True)
+      cost_list.append(corr)
+  cost_volume = tf.concat(cost_list, axis=-1)
+  return cost_volume
+
+def compute_global_cost_volume(features1, features2):
+  """Compute the global cost volume between features1 and features2.
+
+  Displace features2 up to height-1 in the vertical direction and
+  up to width-1 in the horizontal direction and compute the per pixel
+  cost of features1 and the displaced features2.
+
+  Args:
+    features1: tf.tensor of shape [b, h, w, c]
+    features2: tf.tensor of shape [b, h, w, c]
+
+  Returns:
+    tf.tensor of shape [b, h, w, (h*w)] of costs for
+    all displacements.
+  """
+
+  _, height, width, _ = features1.shape.as_list()
+
+  # Pad features2 such that shifts do not go out of bounds.
+  features2_padded = tf.concat([features2, features2[:, :height-1, :, :]], 1)
+  features2_padded = tf.concat([features2_padded, features2_padded[:, :, : width-1, :]], 2)
+  cost_list = []
+  for i in range(height):
+    for j in range(width):
+      corr = tf.reduce_mean(
+          input_tensor=features1 *
+          features2_padded[:, i:(height + i), j:(width + j), :],
+          axis=-1,
+          keepdims=True)
+      cost_list.append(corr)
+  cost_volume = tf.concat(cost_list, axis=-1)
+  return cost_volume
 
 def flow_to_warp(flow):
   """Compute the warp from the flow field.
