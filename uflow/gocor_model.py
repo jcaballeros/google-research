@@ -46,6 +46,13 @@ def target_map_weights_initializer(shape, dtype=None):
   init_gauss_weights = init_gauss - tf.math.reduce_min(init_gauss)
   return init_gauss_weights
 
+def target_mask_weights_initializer(shape, dtype=None):
+  num_bins = 10
+  v_minus_init_factor = 4.0
+  bin_displacement = 0.5
+  d = tf.reshape(tf.range(num_bins, dtype=tf.float32), shape) * bin_displacement
+  weights = v_minus_init_factor * tf.math.tanh(2.0 - d)
+  return weights
 
 class LocalGOCor(Model):
   """Model to improve the local correlation layer output based on Truong et al. 2020 GOCor paper"""
@@ -74,6 +81,8 @@ class LocalGOCor(Model):
         kernel_initializer=target_map_weights_initializer)
     self._spatial_weight_predictor = Conv2D(filters=1, kernel_size=1, use_bias=False,
         kernel_initializer=tf.keras.initializers.Constant(1.0))
+    self._target_mask_predictor = Conv2D(filters=1, kernel_size=1, use_bias=False,
+              kernel_initializer=target_mask_weights_initializer, activation='sigmoid')
 
   def sigma_smooth(self, c, v_plus, v_minus):
     ((v_plus-v_minus)/2.0)*tf.abs(c) + ((v_plus+v_minus)/2.0)*c
@@ -107,6 +116,7 @@ class LocalGOCor(Model):
     distance_map = self.compute_distance_map()
     target_map = self._target_map(distance_map)
     v_plus = self._spatial_weight_predictor(distance_map)
+    weight_m = self._target_mask_predictor(distance_map)
 
     return reference_feature
 
