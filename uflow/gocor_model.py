@@ -20,6 +20,13 @@ from tensorflow.keras.layers import Conv2D
 
 from uflow import uflow_utils
 
+class LeakyReluPar(Model):
+  def __init__(self):
+    super(LeakyReluPar, self).__init__()
+
+  def call(self, x, alpha):
+    return (1.0 - alpha)/2.0 * tf.math.abs(x) + (1.0 + alpha)/2.0 * x
+
 class LocalGOCorInitializer(Model):
   def __init__(self,
                use_bfloat16=False):
@@ -81,8 +88,11 @@ class LocalGOCor(Model):
         kernel_initializer=target_map_weights_initializer)
     self._spatial_weight_predictor = Conv2D(filters=1, kernel_size=1, use_bias=False,
         kernel_initializer=tf.keras.initializers.Constant(1.0))
-    self._target_mask_predictor = Conv2D(filters=1, kernel_size=1, use_bias=False,
-              kernel_initializer=target_mask_weights_initializer, activation='sigmoid')
+    self._target_mask_predictor = tf.keras.Sequential()
+    self._target_mask_predictor.add(tf.keras.layers.Conv2D(filters=1, kernel_size=1, use_bias=False,
+        kernel_initializer=target_mask_weights_initializer, activation='sigmoid'))
+
+    self._score_activation = LeakyReluPar()
 
   def sigma_smooth(self, c, v_plus, v_minus):
     ((v_plus-v_minus)/2.0)*tf.abs(c) + ((v_plus+v_minus)/2.0)*c
@@ -115,8 +125,10 @@ class LocalGOCor(Model):
     sigma_n_deriv = self.sigma_smooth_deriv(c_fref_w, v_plus, v_minus)
     distance_map = self.compute_distance_map()
     target_map = self._target_map(distance_map)
-    v_plus = self._spatial_weight_predictor(distance_map)
-    weight_m = self._target_mask_predictor(distance_map)
+    v_plus = tf.reshape(self._spatial_weight_predictor(distance_map), [1, 1, 1, -1])
+    weight_m = tf.reshape(self._target_mask_predictor(distance_map), [1, 1, 1, -1])
+
+    act_scores_filter_w_ref = v_plus * self._score_activation(c_fref_w, weight_m)
 
     return reference_feature
 
