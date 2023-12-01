@@ -27,6 +27,13 @@ class LeakyReluPar(Model):
   def call(self, x, alpha):
     return (1.0 - alpha)/2.0 * tf.math.abs(x) + (1.0 + alpha)/2.0 * x
 
+class LeakyReluParDeriv(Model):
+  def __init__(self):
+    super(LeakyReluParDeriv, self).__init__()
+
+  def call(self, x, alpha):
+    return (1.0 - alpha)/2.0 * tf.math.sign(tf.stop_gradient(x)) + (1.0 + alpha)/2.0
+
 class LocalGOCorInitializer(Model):
   def __init__(self,
                use_bfloat16=False):
@@ -69,7 +76,8 @@ class LocalGOCor(Model):
                num_bins=10,
                max_displacement=4,
                bin_displacement=0.5,
-               init_gauss_sigma=1.0):
+               init_gauss_sigma=1.0,
+               channels=32):
     super(LocalGOCor, self).__init__()
     self._use_bfloat16 = use_bfloat16
     if use_bfloat16:
@@ -93,6 +101,11 @@ class LocalGOCor(Model):
         kernel_initializer=target_mask_weights_initializer, activation='sigmoid'))
 
     self._score_activation = LeakyReluPar()
+    self._score_activation_deriv = LeakyReluParDeriv()
+
+    # Convolution for dimensionality reduction
+    self._chan_reduction = Conv2D(filters=channels, kernel_size=1, strides=1, padding='valid')
+
 
   def sigma_smooth(self, c, v_plus, v_minus):
     ((v_plus-v_minus)/2.0)*tf.abs(c) + ((v_plus+v_minus)/2.0)*c
@@ -116,19 +129,34 @@ class LocalGOCor(Model):
     return bin_val
 
   def call(self, reference_feature, query_feature):
+    # Get initial value for filter map w
     w = self._initializer(reference_feature)
 
+    # Compute the correlation between filter_map and the reference features and initialize v+ and v-
     c_fref_w = uflow_utils.compute_local_cost_volume(w, reference_feature, self._max_displacement)
     v_plus = tf.ones_like(c_fref_w)
     v_minus = tf.zeros_like(c_fref_w)
-    sigma_n = self.sigma_smooth(c_fref_w, v_plus, v_minus)
-    sigma_n_deriv = self.sigma_smooth_deriv(c_fref_w, v_plus, v_minus)
+    sigma_n0 = self.sigma_smooth(c_fref_w, v_plus, v_minus)
+    sigma_n0_deriv = self.sigma_smooth_deriv(c_fref_w, v_plus, v_minus)
     distance_map = self.compute_distance_map()
-    target_map = self._target_map(distance_map)
+    y = tf.reshape(self._target_map(distance_map), [1, 1, 1, -1])
     v_plus = tf.reshape(self._spatial_weight_predictor(distance_map), [1, 1, 1, -1])
     weight_m = tf.reshape(self._target_mask_predictor(distance_map), [1, 1, 1, -1])
 
+    # Compute sigma and its derivative
     act_scores_filter_w_ref = v_plus * self._score_activation(c_fref_w, weight_m)
+    grad_act_scores_by_filter = v_plus * self._score_activation_deriv(c_fref_w, weight_m)
+
+    # Compute L_r
+    loss_ref_residuals = act_scores_filter_w_ref - v_plus * y
+    mapped_residuals = grad_act_scores_by_filter * loss_ref_residuals
+
+    # Reduce the number of channels of mapped_residuals for the cost voolume computation:
+    mapped_residuals = self._chan_reduction(mapped_residuals)
+
+
+    # Compute gradient of L_r
+    filter_grad_loss_ref = uflow_utils.compute_local_cost_volume(mapped_residuals, reference_feature, self._max_displacement)
 
     return reference_feature
 

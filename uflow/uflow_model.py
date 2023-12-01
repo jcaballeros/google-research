@@ -140,7 +140,7 @@ class PWCFlow(Model):
           self._gocor_model[pyr_level] = gocor_model.GlobalGOCor(use_bfloat16=use_bfloat16)
         else:
           self._gocor_model[pyr_level] = gocor_model.LocalGOCor(use_bfloat16=use_bfloat16,
-              num_iter=3, bin_displacement=0.5)
+              num_iter=3, bin_displacement=0.5, channels=self._num_context_up_channels)
 
 
   def call(self, feature_pyramid1, feature_pyramid2, training=False):
