@@ -115,12 +115,6 @@ class LocalGOCor(Model):
     self._min_filter_reg = min_filter_reg
     self._log_step_length = tf.Variable(tf.math.log(init_step_length) * tf.ones(1), trainable=True)
 
-  def sigma_smooth(self, c, v_plus, v_minus):
-    ((v_plus-v_minus)/2.0)*tf.abs(c) + ((v_plus+v_minus)/2.0)*c
-
-  def sigma_smooth_deriv(self, c, v_plus, v_minus):
-    ((v_plus-v_minus)/2.0)*tf.math.sign(c) + ((v_plus+v_minus)/2.0)
-
   def compute_distance_map(self):
     search_size = 2 * self._max_displacement + 1
     center = tf.constant([self._max_displacement, self._max_displacement])
@@ -143,11 +137,11 @@ class LocalGOCor(Model):
     # Initialize filter map w regularization weights
     _, width, height, ref_feature_chan = reference_feature.shape.as_list()
     reg_weight = tf.clip_by_value(self._w_reg * self._w_reg,
-        clip_value_min=(self._min_filter_reg**2)/(ref_feature_chan**2), clip_value_max=tf.float32.max)
+        clip_value_min=(self._min_filter_reg**2)/(ref_feature_chan**2),
+        clip_value_max=tf.float32.max)
     step_length = tf.math.exp(self._log_step_length)
     correlation_channels = (2 * self._max_displacement + 1)**2
     v_plus = tf.ones([width, height, correlation_channels])
-    v_minus = tf.zeros_like([width, height, correlation_channels])
     distance_map = self.compute_distance_map()
     y = tf.reshape(self._target_map(distance_map), [1, 1, 1, -1])
     v_plus = tf.reshape(self._spatial_weight_predictor(distance_map), [1, 1, 1, -1])
