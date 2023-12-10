@@ -575,9 +575,9 @@ def resize(img, height, width, is_flow, mask=None):
   """
 
   def _resize(img, mask=None):
-    # _, orig_height, orig_width, _ = img.shape.as_list()
-    orig_height = tf.shape(input=img)[1]
-    orig_width = tf.shape(input=img)[2]
+    _, orig_height, orig_width, _ = img.shape.as_list()
+    # orig_height = tf.shape(input=img)[1]
+    # orig_width = tf.shape(input=img)[2]
 
     if orig_height == height and orig_width == width:
       # early return if no resizing is required

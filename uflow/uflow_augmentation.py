@@ -26,6 +26,7 @@ import gin
 import gin.tf
 import tensorflow as tf
 from tensorflow_addons import image as tfa_image
+import numpy as np
 
 from uflow import uflow_utils
 
@@ -390,17 +391,19 @@ def random_crop(images, flow=None, mask=None, crop_height=None, crop_width=None,
   orig_height = tf.shape(images)[-3]
   orig_width = tf.shape(images)[-2]
 
+  _, orig_height, orig_width, _ = images.shape.as_list()
+
   # check if crop size fits the image size
   scale = 1.0
-  ratio = tf.cast(crop_height, tf.float32) / tf.cast(orig_height, tf.float32)
-  scale = tf.math.maximum(scale, ratio)
-  ratio = tf.cast(crop_width, tf.float32) / tf.cast(orig_width, tf.float32)
-  scale = tf.math.maximum(scale, ratio)
+  ratio = float(crop_height) / float(orig_height)
+  scale = np.maximum(scale, ratio)
+  ratio = float(crop_width) / float(orig_width)
+  scale = np.maximum(scale, ratio)
+
   # compute minimum required hight
-  new_height = tf.cast(
-      tf.math.ceil(tf.cast(orig_height, tf.float32) * scale), tf.int32)
-  new_width = tf.cast(
-      tf.math.ceil(tf.cast(orig_width, tf.float32) * scale), tf.int32)
+  new_height = int(scale * float(orig_height))
+  new_width = int(scale * float(orig_width))
+
   # perform resize (scales with 1 if not required)
   images = uflow_utils.resize(images, new_height, new_width, is_flow=False)
 
