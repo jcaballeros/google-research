@@ -16,6 +16,9 @@
 """Main script to train and evaluate UFlow."""
 
 # pylint:disable=g-importing-member
+
+import torch
+
 from functools import partial
 from absl import app
 from absl import flags
@@ -30,6 +33,8 @@ from uflow import uflow_data
 from uflow import uflow_flags
 from uflow import uflow_plotting
 from uflow.uflow_net import UFlow
+
+import logging
 
 FLAGS = flags.FLAGS
 
@@ -179,6 +184,7 @@ def main(unused_argv):
   if FLAGS.no_tf_function:
     tf.config.experimental_run_functions_eagerly(True)
     print('TFFUNCTION DISABLED')
+    tf.get_logger().setLevel(logging.ERROR)
 
   gin.parse_config_files_and_bindings(FLAGS.config_file, FLAGS.gin_bindings)
   # Make directories if they do not exist yet.
@@ -378,4 +384,6 @@ def main(unused_argv):
 
 
 if __name__ == '__main__':
+  torch.cuda.set_device('cuda:0')
+  torch.set_default_device('cuda:0')
   app.run(main)

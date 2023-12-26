@@ -38,6 +38,11 @@ from tensorflow.keras.models import Sequential
 
 from uflow import uflow_utils
 
+from uflow.GOCor.GOCor import local_gocor
+from uflow.GOCor.GOCor import global_gocor_modules
+
+import torch
+import numpy as np
 
 def normalize_features(feature_list, normalize, center, moments_across_channels,
                        moments_across_images):
@@ -211,6 +216,27 @@ class PWCFlow(Model):
       # pylint:disable=invalid-name
       self._1x1_shared_decoder = self._build_1x1_shared_decoder()
 
+    if self._use_gocor:
+      # Create a GOCor module per level
+      num_gocor_modules = self._num_levels - 1
+      self._gocor_initializer = [None] * num_gocor_modules
+      self._gocor_optimizer = [None] * num_gocor_modules
+      self._gocor_module = [None] * num_gocor_modules
+
+      # Global GOCor settings
+      global_gocor_dict = {"num_iter1": 1}
+
+      for level in range(num_gocor_modules):
+        if ((-1 != self._global_cost_volume) and (self._global_cost_volume < level + 1)):
+          self._gocor_module[level] = global_gocor_modules.GlobalGOCorWithSimpleInitializer(global_gocor_dict)
+          print('Level using global gocor ' + str(level))
+        else:
+          self._gocor_initializer[level] = local_gocor.LocalCorrSimpleInitializer()
+          self._gocor_optimizer[level] = local_gocor.LocalGOCorrOpt(num_iter=3)
+          self._gocor_module[level] = local_gocor.LocalGOCor(
+          filter_initializer=self._gocor_initializer[level],
+          filter_optimizer=self._gocor_optimizer[level])
+
   def call(self, feature_pyramid1, feature_pyramid2, training=False):
     """Run the model."""
     context = None
@@ -252,10 +278,33 @@ class PWCFlow(Model):
           moments_across_images=True)
 
       if self._use_cost_volume:
-        if ((-1 != self._global_cost_volume) and (self._global_cost_volume < level)):
+        if self._use_gocor:
+          # Compute global/local gocor
+          cuda0 = torch.device('cuda:0')
+          features1_normalized_np = features1_normalized.numpy()
+          features1_normalized_torch = torch.from_numpy(
+            np.moveaxis(features1_normalized_np, -1, 1)).to(cuda0)
+
+          warped2_normalized_np = warped2_normalized.numpy()
+          warped2_normalized_torch = torch.from_numpy(
+            np.moveaxis(warped2_normalized_np, -1, 1)).to(cuda0)
+
+          if ((-1 != self._global_cost_volume) and (self._global_cost_volume < level)):
+            gocor_cost_volume, loss = self._gocor_module[level - 1](features1_normalized_torch,
+              warped2_normalized_torch)
+          else:
+            gocor_cost_volume = self._gocor_module[level - 1](features1_normalized_torch,
+              warped2_normalized_torch)
+
+          # Convert torch resulting tensor to tensorflow
+          gocor_cost_volume_np = gocor_cost_volume.cpu().detach().numpy()
+          cost_volume = tf.convert_to_tensor(np.moveaxis(gocor_cost_volume_np, 1, -1))
+
+        elif ((-1 != self._global_cost_volume) and (self._global_cost_volume < level)):
           # Use global cost volume on the levels greater than global_cost_volume value
           cost_volume = compute_global_cost_volume(
             features1_normalized, warped2_normalized)
+
         else:
           cost_volume = compute_cost_volume(
             features1_normalized, warped2_normalized, max_displacement=4)
