@@ -225,7 +225,7 @@ class PWCFlow(Model):
       self._gocor_module = [None] * num_gocor_modules
 
       # Global GOCor settings
-      global_gocor_dict = {"num_iter1": 1}
+      global_gocor_dict = {"num_iter1": 3}
 
       for level in range(num_gocor_modules):
         if ((-1 != self._global_cost_volume) and (self._global_cost_volume < level + 1)):
@@ -233,7 +233,7 @@ class PWCFlow(Model):
           print('Level using global gocor ' + str(level))
         else:
           self._gocor_initializer[level] = local_gocor.LocalCorrSimpleInitializer()
-          self._gocor_optimizer[level] = local_gocor.LocalGOCorrOpt(num_iter=3)
+          self._gocor_optimizer[level] = local_gocor.LocalGOCorrOpt(num_iter=7)
           self._gocor_module[level] = local_gocor.LocalGOCor(
           filter_initializer=self._gocor_initializer[level],
           filter_optimizer=self._gocor_optimizer[level])
