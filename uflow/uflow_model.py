@@ -232,6 +232,7 @@ class PWCFlow(Model):
           self._gocor_module[level] = global_gocor_modules.GlobalGOCorWithSimpleInitializer(global_gocor_dict)
           print('Level using global gocor ' + str(level))
         else:
+          print('Level using local gocor ' + str(level))
           self._gocor_initializer[level] = local_gocor.LocalCorrSimpleInitializer()
           self._gocor_optimizer[level] = local_gocor.LocalGOCorrOpt(num_iter=7)
           self._gocor_module[level] = local_gocor.LocalGOCor(
@@ -292,7 +293,7 @@ class PWCFlow(Model):
 
           if ((-1 != self._global_cost_volume) and (self._global_cost_volume < level)):
             gocor_cost_volume, loss = self._gocor_module[level - 1](features1_normalized_torch,
-              warped2_normalized_torch, training)
+              warped2_normalized_torch)
           else:
             gocor_cost_volume = self._gocor_module[level - 1](features1_normalized_torch,
               warped2_normalized_torch)
