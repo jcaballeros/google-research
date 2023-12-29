@@ -183,7 +183,8 @@ class PWCFlow(Model):
                use_bfloat16=False,
                shared_flow_decoder=False,
                global_cost_volume=-1,
-               use_gocor=False):
+               use_gocor=False,
+               training=False):
 
     super(PWCFlow, self).__init__()
     self._use_bfloat16 = use_bfloat16
@@ -291,7 +292,7 @@ class PWCFlow(Model):
 
           if ((-1 != self._global_cost_volume) and (self._global_cost_volume < level)):
             gocor_cost_volume, loss = self._gocor_module[level - 1](features1_normalized_torch,
-              warped2_normalized_torch)
+              warped2_normalized_torch, training)
           else:
             gocor_cost_volume = self._gocor_module[level - 1](features1_normalized_torch,
               warped2_normalized_torch)

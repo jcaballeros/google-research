@@ -119,6 +119,7 @@ def create_uflow():
       smoothness_at_level=FLAGS.smoothness_at_level,
       global_cost_volume=FLAGS.global_cost_volume,
       use_gocor=FLAGS.use_gocor,
+      training=FLAGS.train_on,
 )
   return uflow
 
