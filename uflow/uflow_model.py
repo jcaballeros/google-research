@@ -43,6 +43,8 @@ from uflow.GOCor.GOCor import global_gocor_modules
 
 import torch
 import numpy as np
+import os
+from os.path import exists
 
 def normalize_features(feature_list, normalize, center, moments_across_channels,
                        moments_across_images):
@@ -184,7 +186,8 @@ class PWCFlow(Model):
                shared_flow_decoder=False,
                global_cost_volume=-1,
                use_gocor=False,
-               training=False):
+               training=False,
+               checkpoint_dir='/tmp/'):
 
     super(PWCFlow, self).__init__()
     self._use_bfloat16 = use_bfloat16
@@ -204,6 +207,7 @@ class PWCFlow(Model):
     self._shared_flow_decoder = shared_flow_decoder
     self._global_cost_volume = global_cost_volume
     self._use_gocor = use_gocor
+    self._checkpoint_dir = checkpoint_dir
 
     self._refine_model = self._build_refinement_model()
     self._flow_layers = self._build_flow_layers()
@@ -238,6 +242,12 @@ class PWCFlow(Model):
           self._gocor_module[level] = local_gocor.LocalGOCor(
           filter_initializer=self._gocor_initializer[level],
           filter_optimizer=self._gocor_optimizer[level])
+
+        # Restore checkpoints
+        path = checkpoint_dir + '/gocor/'
+        if (os.path.exists(path)):
+          self._gocor_module[level].restore_gocor_modules(path, level)
+          print('Restoring checkpoint in ' + str(path))
 
   def call(self, feature_pyramid1, feature_pyramid2, training=False):
     """Run the model."""
@@ -386,6 +396,15 @@ class PWCFlow(Model):
               padding='same',
               dtype=self._dtype_policy))
     return layers
+
+  def save_gocor(self):
+    basedir = self._checkpoint_dir + '/gocor/'
+    if not os.path.exists(basedir):
+      os.makedirs(basedir)
+    num_gocor_modules = self._num_levels - 1
+    path = self._checkpoint_dir + '/gocor/'
+    for level in range(num_gocor_modules):
+      self._gocor_module[level].save_gocor_modules(path, level)
 
   def _build_upsample_layers(self, num_channels):
     """Build layers for upsampling via deconvolution."""

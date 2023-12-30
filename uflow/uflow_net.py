@@ -163,7 +163,7 @@ class UFlow(object):
         use_bfloat16=use_bfloat16,
         shared_flow_decoder=shared_flow_decoder,
         global_cost_volume=global_cost_volume,
-        use_gocor=use_gocor, training=training)
+        use_gocor=use_gocor, training=training, checkpoint_dir=checkpoint_dir)
     # By default, the teacher flow and featuure models are the same as
     # the student flow and feature models.
     self._teacher_flow_model = self._flow_model
@@ -238,6 +238,7 @@ class UFlow(object):
   def save(self):
     """Saves a model checkpoint."""
     self._manager.save()
+    self._flow_model.save_gocor()
 
   def _make_or_reset_optimizer(self):
     if self._optimizer_type == 'adam':
@@ -371,11 +372,11 @@ class UFlow(object):
 
     # Compute flow in frame of image1.
     # noinspection PyCallingNonCallable
-    flow = self._flow_model(features1, features2, training=False)[0]
+    flow = self._flow_model(features1, features2, training=False, checkpoint_dir=checkpoint)[0]
 
     if infer_occlusion:
       # noinspection PyCallingNonCallable
-      flow_backward = self._flow_model(features2, features1, training=False)[0]
+      flow_backward = self._flow_model(features2, features1, training=False, checkpoint_dir=checkpoint)[0]
       occlusion_mask = self.infer_occlusion(flow, flow_backward)
       occlusion_mask = uflow_utils.resize(
           occlusion_mask, orig_height, orig_width, is_flow=False)
