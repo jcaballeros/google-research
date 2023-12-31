@@ -229,7 +229,7 @@ class PWCFlow(Model):
       self._gocor_module = [None] * num_gocor_modules
 
       # Global GOCor settings
-      global_gocor_dict = {"num_iter1": 3}
+      global_gocor_dict = {'optim_iter':3, 'num_features': 512, 'init_step_length': 1.0, 'init_filter_reg': 1e-2, 'min_filter_reg': 1e-5, 'steplength_reg': 0.0, 'num_dist_bins':10, 'bin_displacement': 0.5, 'init_gauss_sigma_DIMP':1.0, 'v_minus_act': 'sigmoid', 'v_minus_init_factor': 4.0, 'apply_query_loss': False, 'reg_kernel_size': 3, 'reg_inter_dim': 1, 'reg_output_dim': 1.0, 'num_iter':3}
 
       for level in range(num_gocor_modules):
         if ((-1 != self._global_cost_volume) and (self._global_cost_volume < level + 1)):
@@ -302,15 +302,18 @@ class PWCFlow(Model):
             np.moveaxis(warped2_normalized_np, -1, 1)).to(cuda0)
 
           if ((-1 != self._global_cost_volume) and (self._global_cost_volume < level)):
-            gocor_cost_volume, loss = self._gocor_module[level - 1](features1_normalized_torch,
+            filter_torch = self._gocor_module[level - 1](features1_normalized_torch,
               warped2_normalized_torch)
+            filter_np = filter_torch.cpu().detach().numpy()
+            filter_tf = tf.convert_to_tensor(filter_np)
+            filter_tf = tf.reshape(filter_tf, features1.shape)
+            cost_volume = compute_global_cost_volume(filter_tf, warped2_normalized)
           else:
-            gocor_cost_volume = self._gocor_module[level - 1](features1_normalized_torch,
+            filter_torch = self._gocor_module[level - 1](features1_normalized_torch,
               warped2_normalized_torch)
-
-          # Convert torch resulting tensor to tensorflow
-          gocor_cost_volume_np = gocor_cost_volume.cpu().detach().numpy()
-          cost_volume = tf.convert_to_tensor(np.moveaxis(gocor_cost_volume_np, 1, -1))
+            filter_np = filter_torch.cpu().detach().numpy()
+            filter_tf = tf.convert_to_tensor(np.moveaxis(filter_np, 1, -1))
+            cost_volume = compute_cost_volume(filter_tf, warped2_normalized, max_displacement=4)
 
         elif ((-1 != self._global_cost_volume) and (self._global_cost_volume < level)):
           # Use global cost volume on the levels greater than global_cost_volume value
