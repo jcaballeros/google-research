@@ -31,6 +31,8 @@ from uflow import uflow_flags
 from uflow import uflow_plotting
 from uflow.uflow_net import UFlow
 
+import logging
+
 FLAGS = flags.FLAGS
 
 
@@ -179,6 +181,7 @@ def main(unused_argv):
   if FLAGS.no_tf_function:
     tf.config.experimental_run_functions_eagerly(True)
     print('TFFUNCTION DISABLED')
+    tf.get_logger().setLevel(logging.ERROR)
 
   gin.parse_config_files_and_bindings(FLAGS.config_file, FLAGS.gin_bindings)
   # Make directories if they do not exist yet.

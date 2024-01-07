@@ -211,6 +211,8 @@ class PWCFlow(Model):
       # pylint:disable=invalid-name
       self._1x1_shared_decoder = self._build_1x1_shared_decoder()
 
+    self._displacement = [40, 20, 10, 5, 3]
+
   def call(self, feature_pyramid1, feature_pyramid2, training=False):
     """Run the model."""
     context = None
@@ -257,8 +259,10 @@ class PWCFlow(Model):
           cost_volume = compute_global_cost_volume(
             features1_normalized, warped2_normalized)
         else:
+          disp = self._displacement[level]
+          #print("Level " + str(level) + " Displacement is " + str(disp))
           cost_volume = compute_cost_volume(
-            features1_normalized, warped2_normalized, max_displacement=4)
+            features1_normalized, warped2_normalized, max_displacement=disp)
       else:
         concat_features = Concatenate(axis=-1)(
             [features1_normalized, warped2_normalized])
