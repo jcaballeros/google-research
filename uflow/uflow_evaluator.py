@@ -21,6 +21,7 @@ from absl import app
 from absl import flags
 from absl import logging
 import gin
+import torch
 import tensorflow as tf
 
 from uflow import uflow_data
@@ -95,4 +96,6 @@ def main(unused_argv):
 
 
 if __name__ == '__main__':
+  torch.cuda.set_device('cuda:0')
+  torch.set_default_device('cuda:0')
   app.run(main)

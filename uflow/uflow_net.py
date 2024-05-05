@@ -372,11 +372,11 @@ class UFlow(object):
 
     # Compute flow in frame of image1.
     # noinspection PyCallingNonCallable
-    flow = self._flow_model(features1, features2, training=False, checkpoint_dir=checkpoint)[0]
+    flow = self._flow_model(features1, features2, training=False)[0]
 
     if infer_occlusion:
       # noinspection PyCallingNonCallable
-      flow_backward = self._flow_model(features2, features1, training=False, checkpoint_dir=checkpoint)[0]
+      flow_backward = self._flow_model(features2, features1, training=False)[0]
       occlusion_mask = self.infer_occlusion(flow, flow_backward)
       occlusion_mask = uflow_utils.resize(
           occlusion_mask, orig_height, orig_width, is_flow=False)
